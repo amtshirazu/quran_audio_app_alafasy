@@ -3,9 +3,10 @@ import React, { useState } from 'react';
 import {
   ScrollView,
   View,
-  Text,
   Pressable,
+  Image,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -13,58 +14,71 @@ import {
   BookOpen,
   ChevronRight,
   Clock3,
-  Headphones,
   Heart,
   Music2,
   Pause,
   Play,
   Search,
-  Sparkles,
 } from 'lucide-react-native';
 
-import colors from '../theme/colors';
-
-type Surah = {
-  number: number;
-  name: string;
-  arabic: string;
-  duration: string;
-};
-
-const featuredSurahs: Surah[] = [
-  { number: 1, name: 'Al-Fatihah', arabic: 'الفاتحة', duration: '01:05' },
-  { number: 36, name: 'Ya-Sin', arabic: 'يس', duration: '13:42' },
-  { number: 55, name: 'Ar-Rahman', arabic: 'الرحمن', duration: '11:18' },
-];
+import { useTheme } from '../context/ThemeContext';
+import Text from '../components/AppText';
+import { useFavourites } from '../context/FavouritesContext';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
+import { surahs } from '../data/surahs';
+import { surahDurations } from '../data/surahDurations';
+import type { AppColors } from '../theme/theme';
+import { useLocalization } from '../context/LocalizationContext';
 
 type HomeScreenProps = {
   onOpenSurahs: () => void;
 };
 
+function chooseFeaturedSurahs() {
+  const pool = [...surahs];
+  for (let index = pool.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [pool[index], pool[swapIndex]] = [pool[swapIndex], pool[index]];
+  }
+  return pool.slice(0, 3);
+}
+
 export default function HomeScreen({
   onOpenSurahs,
 }: HomeScreenProps) {
-  const [currentSurah, setCurrentSurah] = useState<Surah>({
-    number: 55,
-    name: 'Ar-Rahman',
-    arabic: 'الرحمن',
-    duration: '11:18',
-  });
+  const { colors } = useTheme();
+  const { t } = useLocalization();
+  const [featuredSurahs] = useState(chooseFeaturedSurahs);
+  const styles = createStyles(colors);
+  const { toggleFavourite, isFavourite } = useFavourites();
+  const audioPlayer = useAudioPlayer();
+  const isPlaying = audioPlayer.isPlaying;
+  const currentSurah = audioPlayer.currentSurah ?? surahs[0];
+  const hasCurrentSurah = audioPlayer.currentSurah !== null;
+  const progressWidth =
+    audioPlayer.duration > 0
+      ? `${Math.min(audioPlayer.position / audioPlayer.duration, 1) * 100}%`
+      : '0%';
 
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [favourites, setFavourites] = useState<number[]>([]);
-
-  function toggleFavourite(surahNumber: number) {
-    setFavourites((previous) =>
-      previous.includes(surahNumber)
-        ? previous.filter((number) => number !== surahNumber)
-        : [...previous, surahNumber],
-    );
+  function selectSurah(surahNumber: number) {
+    audioPlayer.playSurah(surahNumber).catch((error: unknown) => {
+      Alert.alert(
+        t('Could not play this surah'),
+        error instanceof Error ? error.message : String(error),
+      );
+    });
   }
 
-  function selectSurah(surah: Surah) {
-    setCurrentSurah(surah);
-    setIsPlaying(true);
+  function toggleCurrentPlayback() {
+    const action = audioPlayer.currentSurah
+      ? audioPlayer.togglePlayback()
+      : audioPlayer.playSurah(currentSurah.number);
+    action.catch((error: unknown) => {
+      Alert.alert(
+        t('Playback control failed'),
+        error instanceof Error ? error.message : String(error),
+      );
+    });
   }
 
   return (
@@ -85,105 +99,96 @@ export default function HomeScreen({
 
             <View>
               <Text style={styles.brandName}>ALAFASY QURAN</Text>
-              <Text style={styles.brandSubtitle}>
-                A moment of tranquillity
-              </Text>
+              <Text style={styles.brandSubtitle}>{t('A moment of tranquillity')}</Text>
             </View>
           </View>
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Search surahs"
+            accessibilityLabel={t('Search surahs')}
             style={styles.iconButton}
             onPress={onOpenSurahs}
           >
-            <Search size={21} color={colors.emerald} />
+            <Search size={21} color={colors.text} />
           </Pressable>
         </View>
 
         <View style={styles.greeting}>
-          <Text style={styles.eyebrow}>YOUR DAILY LISTENING</Text>
-          <Text style={styles.heading}>Peace begins here.</Text>
+          <Text style={styles.eyebrow}>{t('LISTEN WITH PRESENCE')}</Text>
+          <Text style={styles.heading}>{t('A moment for reflection.')}</Text>
           <Text style={styles.description}>
-            Take a moment. Listen, reflect, and find your calm.
+            {t('Set aside a moment for Quran recitation.')}
           </Text>
         </View>
 
-        {/* 2. Featured recitation */}
+        {/* 1. Reciter introduction */}
         <View style={styles.heroCard}>
-          <View style={styles.heroDecoration} />
-          <View style={styles.heroDecorationSmall} />
-
-          <View style={styles.heroTopRow}>
-            <View style={styles.reciterBadge}>
-              <Headphones size={14} color={colors.gold} />
-              <Text style={styles.reciterBadgeText}>
-                THE RECITER
-              </Text>
-            </View>
-
-            <Sparkles size={21} color={colors.gold} />
-          </View>
-
-          <View style={styles.heroArtwork}>
-            <View style={styles.artRingOuter}>
-              <View style={styles.artRingInner}>
-                <BookOpen size={40} color={colors.gold} strokeWidth={1.4} />
-              </View>
+          <View style={styles.reciterProfileRow}>
+            <Image
+              source={require('../../assets/alafasy2.jpg')}
+              style={styles.reciterPortrait}
+              accessibilityLabel={t('Portrait of Mishary Rashid Alafasy')}
+            />
+            <View style={styles.reciterProfileText}>
+              <Text style={styles.eyebrow}>{t('FEATURED RECITER')}</Text>
+              <Text style={styles.reciterName}>Mishary Rashid</Text>
+              <Text style={styles.reciterSurname}>Alafasy</Text>
+              <Text style={styles.heroDescription}>{t('Quran reciter - Kuwait')}</Text>
             </View>
           </View>
-
-          <Text style={styles.reciterName}>Mishary Rashid</Text>
-          <Text style={styles.reciterSurname}>Alafasy</Text>
-          <Text style={styles.heroDescription}>
-            Experience the beauty of Quran recitation.
-          </Text>
-
           <Pressable
             style={styles.heroButton}
-            onPress={() => selectSurah(featuredSurahs[2])}
+            onPress={() => onOpenSurahs()}
             accessibilityRole="button"
+            accessibilityLabel={t('Browse all surahs to listen')}
           >
-            <Play size={17} color={colors.emerald} fill={colors.emerald} />
-            <Text style={styles.heroButtonText}>Listen now</Text>
+            <BookOpen size={17} color={colors.emerald} />
+            <Text style={styles.heroButtonText}>{t('Browse all surahs')}</Text>
             <ArrowRight size={17} color={colors.emerald} />
           </Pressable>
         </View>
 
-        {/* 3. Continue listening */}
+        {/* 2. Primary listening action */}
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.sectionTitle}>Continue listening</Text>
-            <Text style={styles.sectionSubtitle}>
-              Pick up where you left off
-            </Text>
+            <Text style={styles.sectionTitle}>{t(hasCurrentSurah ? 'Continue listening' : 'Begin listening')}</Text>
+            <Text style={styles.sectionSubtitle}>{t(hasCurrentSurah ? 'Pick up where you left off' : 'Begin with Al-Fatihah or choose any surah')}</Text>
           </View>
 
           <View style={styles.clockIcon}>
-            <Clock3 size={19} color={colors.emerald} />
+            <Clock3 size={19} color={colors.text} />
           </View>
         </View>
 
         <Pressable
           style={styles.continueCard}
-          onPress={() => selectSurah(currentSurah)}
+          onPress={toggleCurrentPlayback}
           accessibilityRole="button"
+          accessibilityLabel={
+            isPlaying
+              ? `${t('Pause')} ${currentSurah.name}`
+              : `${t('Play')} ${currentSurah.name}`
+          }
         >
           <View style={styles.surahArtwork}>
-            <Music2 size={27} color={colors.gold} />
+            <Music2 size={22} color={colors.gold} />
           </View>
 
           <View style={styles.continueInfo}>
-            <Text style={styles.arabicName}>{currentSurah.arabic}</Text>
             <Text style={styles.continueName}>
               {currentSurah.name}
             </Text>
             <Text style={styles.continueMeta}>
-              Surah {currentSurah.number} · {currentSurah.duration}
+              {t('Surah')} {currentSurah.number} · {surahDurations[currentSurah.number]}
             </Text>
 
             <View style={styles.progressTrack}>
-              <View style={styles.progressFill} />
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: progressWidth },
+                ]}
+              />
             </View>
           </View>
 
@@ -196,12 +201,12 @@ export default function HomeScreen({
           </View>
         </Pressable>
 
-        {/* 4. Surah shortcuts */}
+        {/* 3. Surah shortcuts */}
         <View style={styles.sectionHeader}>
           <View>
-            <Text style={styles.sectionTitle}>Made for your moment</Text>
+            <Text style={styles.sectionTitle}>{t('Explore the Quran')}</Text>
             <Text style={styles.sectionSubtitle}>
-              A few beautiful recitations to explore
+              {t('Selected recitations by Mishary Alafasy')}
             </Text>
           </View>
 
@@ -210,22 +215,23 @@ export default function HomeScreen({
             style={styles.seeAllButton}
             accessibilityRole="button"
           >
-            <Text style={styles.seeAllText}>See all</Text>
-            <ChevronRight size={17} color={colors.emerald} />
+            <Text style={styles.seeAllText}>{t('See all')}</Text>
+            <ChevronRight size={17} color={colors.text} />
           </Pressable>
         </View>
 
         <View style={styles.surahList}>
           {featuredSurahs.map((surah) => {
-            const isFavourite = favourites.includes(surah.number);
+            const favourite = isFavourite(surah.number);
+            const isCurrent = audioPlayer.currentSurah?.number === surah.number;
 
             return (
               <View key={surah.number} style={styles.surahRow}>
                 <Pressable
                   style={styles.surahNumberBox}
-                  onPress={() => selectSurah(surah)}
+                  onPress={() => selectSurah(surah.number)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Play ${surah.name}`}
+                  accessibilityLabel={`${t('Play')} ${surah.name}`}
                 >
                   <Text style={styles.surahNumber}>
                     {String(surah.number).padStart(2, '0')}
@@ -234,13 +240,12 @@ export default function HomeScreen({
 
                 <Pressable
                   style={styles.surahDetails}
-                  onPress={() => selectSurah(surah)}
+                  onPress={() => selectSurah(surah.number)}
                   accessibilityRole="button"
                 >
-                  <Text style={styles.surahArabic}>{surah.arabic}</Text>
                   <Text style={styles.surahName}>{surah.name}</Text>
                   <Text style={styles.surahDuration}>
-                    {surah.duration}
+                    {surahDurations[surah.number]}
                   </Text>
                 </Pressable>
 
@@ -249,70 +254,48 @@ export default function HomeScreen({
                   onPress={() => toggleFavourite(surah.number)}
                   accessibilityRole="button"
                   accessibilityLabel={
-                    isFavourite
-                      ? `Remove ${surah.name} from favourites`
-                      : `Add ${surah.name} to favourites`
+                    favourite
+                      ? `${t('Remove from favourites')}: ${surah.name}`
+                      : `${t('Add to favourites')}: ${surah.name}`
                   }
                 >
                   <Heart
                     size={19}
-                    color={isFavourite ? colors.emerald : colors.muted}
-                    fill={isFavourite ? colors.emerald : 'transparent'}
+                    color={favourite ? colors.gold : colors.muted}
+                    fill={favourite ? colors.gold : 'transparent'}
                   />
                 </Pressable>
 
                 <Pressable
                   style={styles.rowPlayButton}
-                  onPress={() => selectSurah(surah)}
+                  onPress={() =>
+                    isCurrent && isPlaying
+                      ? toggleCurrentPlayback()
+                      : selectSurah(surah.number)
+                  }
                   accessibilityRole="button"
-                  accessibilityLabel={`Play ${surah.name}`}
+                  accessibilityLabel={
+                    isCurrent && isPlaying
+                      ? `${t('Pause')} ${surah.name}`
+                      : `${t('Play')} ${surah.name}`
+                  }
                 >
-                  <Play
-                    size={16}
-                    color={colors.emerald}
-                    fill={colors.emerald}
-                  />
+                  {isCurrent && isPlaying ? (
+                    <Pause size={16} color={colors.text} />
+                  ) : (
+                    <Play
+                      size={16}
+                      color={colors.text}
+                      fill={colors.text}
+                    />
+                  )}
                 </Pressable>
               </View>
             );
           })}
         </View>
 
-        {/* 5. Mini player */}
-        <Pressable
-          style={styles.miniPlayer}
-          onPress={() => setIsPlaying((playing) => !playing)}
-          accessibilityRole="button"
-          accessibilityLabel="Toggle playback preview"
-        >
-          <View style={styles.miniArtwork}>
-            <Music2 size={21} color={colors.gold} />
-          </View>
-
-          <View style={styles.miniInfo}>
-            <Text style={styles.miniTitle}>{currentSurah.name}</Text>
-            <Text style={styles.miniSubtitle}>
-              Mishary Rashid Alafasy
-            </Text>
-          </View>
-
-          <Pressable
-            style={styles.miniPlayButton}
-            onPress={() => setIsPlaying((playing) => !playing)}
-            accessibilityRole="button"
-            accessibilityLabel={isPlaying ? 'Pause preview' : 'Play preview'}
-          >
-            {isPlaying ? (
-              <Pause size={21} color={colors.emerald} />
-            ) : (
-              <Play size={21} color={colors.emerald} fill={colors.emerald} />
-            )}
-          </Pressable>
-        </Pressable>
-
-        <Text style={styles.footerText}>
-          Made for moments of reflection
-        </Text>
+        <Text style={styles.footerText}>{t('May your listening bring reflection and peace.')}</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -320,15 +303,16 @@ export default function HomeScreen({
 
 
 
-const styles = StyleSheet.create({
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.ivory,
+    backgroundColor: colors.background,
   },
   scrollContent: {
     paddingHorizontal: 22,
     paddingTop: 10,
-    paddingBottom: 24,
+    paddingBottom: 112,
   },
   header: {
     flexDirection: 'row',
@@ -349,7 +333,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   brandName: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 1.5,
@@ -367,21 +351,21 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
   },
   greeting: {
     marginTop: 30,
     marginBottom: 20,
   },
   eyebrow: {
-    color: colors.emeraldLight,
+    color: colors.gold,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 2,
   },
   heading: {
     color: colors.text,
-    fontSize: 29,
+    fontSize: 27,
     fontWeight: '700',
     letterSpacing: -0.7,
     marginTop: 8,
@@ -394,10 +378,22 @@ const styles = StyleSheet.create({
   },
   heroCard: {
     backgroundColor: colors.emerald,
-    borderRadius: 26,
-    padding: 22,
+    borderRadius: 22,
+    padding: 18,
     overflow: 'hidden',
-    minHeight: 345,
+  },
+  reciterProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+  },
+  reciterPortrait: {
+    width: 78,
+    height: 88,
+    borderRadius: 18,
+  },
+  reciterProfileText: {
+    flex: 1,
   },
   heroDecoration: {
     position: 'absolute',
@@ -466,26 +462,24 @@ const styles = StyleSheet.create({
   },
   reciterName: {
     color: colors.ivory,
-    fontSize: 24,
+    fontSize: 17,
     fontWeight: '700',
-    textAlign: 'center',
+    marginTop: 7,
   },
   reciterSurname: {
     color: colors.gold,
-    fontSize: 24,
+    fontSize: 17,
     fontWeight: '700',
-    textAlign: 'center',
     marginTop: 1,
   },
   heroDescription: {
     color: '#D7E2D9',
     fontSize: 12,
-    textAlign: 'center',
-    marginTop: 8,
+    marginTop: 5,
   },
   heroButton: {
-    marginTop: 19,
-    minHeight: 48,
+    marginTop: 16,
+    minHeight: 44,
     backgroundColor: colors.ivory,
     borderRadius: 15,
     flexDirection: 'row',
@@ -526,17 +520,17 @@ const styles = StyleSheet.create({
   continueCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 13,
-    backgroundColor: colors.white,
+    gap: 11,
+    padding: 10,
+    backgroundColor: colors.card,
     borderRadius: 21,
     borderWidth: 1,
     borderColor: colors.border,
   },
   surahArtwork: {
-    width: 66,
-    height: 76,
-    borderRadius: 15,
+    width: 56,
+    height: 60,
+    borderRadius: 14,
     backgroundColor: colors.emerald,
     alignItems: 'center',
     justifyContent: 'center',
@@ -544,15 +538,9 @@ const styles = StyleSheet.create({
   continueInfo: {
     flex: 1,
   },
-  arabicName: {
-    color: colors.gold,
-    fontSize: 19,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
   continueName: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
   },
   continueMeta: {
@@ -564,7 +552,7 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.border,
-    marginTop: 10,
+    marginTop: 8,
     overflow: 'hidden',
   },
   progressFill: {
@@ -574,9 +562,9 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   roundPlayButton: {
-    width: 39,
-    height: 39,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: colors.emerald,
     alignItems: 'center',
     justifyContent: 'center',
@@ -587,12 +575,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   seeAllText: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
   surahList: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 21,
     borderWidth: 1,
     borderColor: colors.border,
@@ -615,18 +603,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   surahNumber: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
   surahDetails: {
     flex: 1,
     paddingVertical: 9,
-  },
-  surahArabic: {
-    color: colors.emerald,
-    fontSize: 16,
-    fontWeight: '600',
   },
   surahName: {
     color: colors.text,
@@ -637,7 +620,7 @@ const styles = StyleSheet.create({
   surahDuration: {
     color: colors.muted,
     fontSize: 10,
-    marginTop: 3,
+    marginTop: 4,
   },
   favouriteButton: {
     width: 32,
@@ -653,44 +636,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  miniPlayer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#EEE9DC',
-    borderRadius: 18,
-    padding: 12,
-    marginTop: 25,
-  },
-  miniArtwork: {
-    width: 43,
-    height: 43,
-    borderRadius: 13,
-    backgroundColor: colors.emerald,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniInfo: {
-    flex: 1,
-  },
-  miniTitle: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  miniSubtitle: {
-    color: colors.muted,
-    fontSize: 10,
-    marginTop: 4,
-  },
-  miniPlayButton: {
-    width: 39,
-    height: 39,
-    borderRadius: 14,
-    backgroundColor: colors.ivory,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   footerText: {
     color: colors.muted,
     fontSize: 10,
@@ -698,4 +643,5 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 5,
   },
-});
+  });
+}

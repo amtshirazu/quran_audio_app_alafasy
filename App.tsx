@@ -1,16 +1,14 @@
+
 import React from 'react';
-import { StatusBar, View, Text, StyleSheet } from 'react-native';
+import { StatusBar, StyleSheet, View } from 'react-native';
 
 import { NavigationContainer } from '@react-navigation/native';
 import {
   createBottomTabNavigator,
-  BottomTabNavigationProp,
+  type BottomTabNavigationProp,
 } from '@react-navigation/bottom-tabs';
 
-import {
-  SafeAreaProvider,
-  SafeAreaView,
-} from 'react-native-safe-area-context';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import {
   Home,
@@ -22,8 +20,14 @@ import {
 import HomeScreen from './src/screens/HomeScreen';
 import SurahsScreen from './src/screens/SurahsScreen';
 import FavouritesScreen from './src/screens/FavouritesScreen';
-import colors from './src/theme/colors';
+import SettingsScreen from './src/screens/SettingsScreen';
+
 import { FavouritesProvider } from './src/context/FavouritesContext';
+import { AudioPlayerProvider } from './src/context/AudioPlayerContext';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
+import { LocalizationProvider, useLocalization } from './src/context/LocalizationContext';
+import AudioPlayerOverlay from './src/components/AudioPlayerOverlay';
+import { APP_FONT_FAMILY } from './src/components/AppText';
 
 type RootTabParamList = {
   Home: undefined;
@@ -33,44 +37,6 @@ type RootTabParamList = {
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
-
-type PlaceholderProps = {
-  title: string;
-  subtitle: string;
-  icon: React.ReactNode;
-};
-
-function PlaceholderScreen({
-  title,
-  subtitle,
-  icon,
-}: PlaceholderProps) {
-  return (
-    <SafeAreaView style={styles.placeholderScreen}>
-      <View style={styles.placeholderIcon}>
-        {icon}
-      </View>
-
-      <Text style={styles.placeholderTitle}>
-        {title}
-      </Text>
-
-      <Text style={styles.placeholderSubtitle}>
-        {subtitle}
-      </Text>
-    </SafeAreaView>
-  );
-}
-
-function SettingsScreen() {
-  return (
-    <PlaceholderScreen
-      title="Settings"
-      subtitle="Personalise your listening experience and appearance."
-      icon={<Settings size={30} color={colors.gold} />}
-    />
-  );
-}
 
 function renderTabBarIcon(
   route: { name: keyof RootTabParamList },
@@ -116,26 +82,35 @@ function HomeTabScreen({ navigation }: HomeTabScreenProps) {
   );
 }
 
-export default function App() {
-  return (
-    <SafeAreaProvider>
-      <FavouritesProvider>
-        <StatusBar barStyle="dark-content" />
+function AppNavigation() {
+  const { colors, isDark } = useTheme();
+  const { t } = useLocalization();
 
-        <NavigationContainer>
+  return (
+    <>
+      <StatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+      />
+
+      <NavigationContainer>
+        <View style={styles.navigation}>
           <Tab.Navigator
             initialRouteName="Home"
             screenOptions={({ route }) => ({
               headerShown: false,
-              tabBarActiveTintColor: colors.emerald,
+              tabBarLabel: t(route.name),
+              tabBarActiveTintColor: isDark
+                ? colors.gold
+                : colors.emerald,
               tabBarInactiveTintColor: colors.muted,
               tabBarLabelStyle: {
-                fontSize: 10,
+                fontFamily: APP_FONT_FAMILY,
+                fontSize: 9,
                 fontWeight: '600',
                 marginTop: 2,
               },
               tabBarStyle: {
-                backgroundColor: colors.ivory,
+                backgroundColor: colors.tabBar,
                 borderTopColor: colors.border,
                 borderTopWidth: 1,
                 height: 64,
@@ -147,51 +122,51 @@ export default function App() {
                 renderTabBarIcon(route, color, size),
             })}
           >
-            <Tab.Screen name="Home" component={HomeTabScreen} />
-            <Tab.Screen name="Surahs" component={SurahsScreen} />
+            <Tab.Screen
+              name="Home"
+              component={HomeTabScreen}
+            />
+
+            <Tab.Screen
+              name="Surahs"
+              component={SurahsScreen}
+            />
+
             <Tab.Screen
               name="Favourites"
               component={FavouritesScreen}
             />
-            <Tab.Screen name="Settings" component={SettingsScreen} />
+
+            <Tab.Screen
+              name="Settings"
+              component={SettingsScreen}
+            />
           </Tab.Navigator>
-        </NavigationContainer>
-      </FavouritesProvider>
-    </SafeAreaProvider>
+          <AudioPlayerOverlay />
+        </View>
+      </NavigationContainer>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  placeholderScreen: {
+  navigation: {
     flex: 1,
-    backgroundColor: colors.ivory,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-
-  placeholderIcon: {
-    width: 76,
-    height: 76,
-    borderRadius: 25,
-    backgroundColor: colors.emerald,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-
-  placeholderTitle: {
-    color: colors.emerald,
-    fontSize: 23,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-
-  placeholderSubtitle: {
-    color: colors.muted,
-    fontSize: 14,
-    lineHeight: 22,
-    textAlign: 'center',
-    marginTop: 10,
   },
 });
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <LocalizationProvider>
+          <FavouritesProvider>
+            <AudioPlayerProvider>
+              <AppNavigation />
+            </AudioPlayerProvider>
+          </FavouritesProvider>
+        </LocalizationProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
+  );
+}

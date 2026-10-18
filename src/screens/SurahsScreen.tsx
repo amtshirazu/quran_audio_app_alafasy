@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   View,
-  Text,
   TextInput,
   Pressable,
   FlatList,
@@ -12,21 +12,29 @@ import {
   Search,
   Heart,
   Play,
+  Pause,
   X,
   BookOpen,
 } from 'lucide-react-native';
 import { surahs, type Surah } from '../data/surahs';
 
-import colors from '../theme/colors';
 import { useFavourites } from '../context/FavouritesContext';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
+import { useTheme } from '../context/ThemeContext';
+import type { AppColors } from '../theme/theme';
+import Text, { APP_FONT_FAMILY } from '../components/AppText';
+import { useLocalization } from '../context/LocalizationContext';
 
 export default function SurahsScreen() {
   const [search, setSearch] = useState('');
+  const { t, language } = useLocalization();
   const {
     toggleFavourite,
     isFavourite,
   } = useFavourites();
-  const [selectedSurah, setSelectedSurah] = useState<number | null>(null);
+  const audioPlayer = useAudioPlayer();
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
 
   const filteredSurahs = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -38,20 +46,29 @@ export default function SurahsScreen() {
     return surahs.filter(
       (surah) =>
         surah.name.toLowerCase().includes(query) ||
-        surah.translation.toLowerCase().includes(query) ||
+        t(surah.translation).toLowerCase().includes(query) ||
         surah.arabic.includes(search.trim()) ||
         String(surah.number) === query,
     );
-  }, [search]);
+  }, [search, language, t]);
 
   function handlePlay(number: number) {
-    setSelectedSurah(number);
-    // Audio playback will be connected in a later milestone.
+    const action =
+      audioPlayer.currentSurah?.number === number
+        ? audioPlayer.togglePlayback()
+        : audioPlayer.playSurah(number);
+
+    action.catch((error: unknown) => {
+      Alert.alert(
+        t('Could not play this surah'),
+        error instanceof Error ? error.message : String(error),
+      );
+    });
   }
 
   function renderSurah({ item }: { item: Surah }) {
     const isFav = isFavourite(item.number);
-    const isSelected = selectedSurah === item.number;
+    const isSelected = audioPlayer.currentSurah?.number === item.number;
 
     return (
       <View style={styles.surahRow}>
@@ -66,7 +83,7 @@ export default function SurahsScreen() {
           onPress={() => handlePlay(item.number)}
         >
           <Text style={styles.surahName}>{item.name}</Text>
-          <Text style={styles.surahMeta}>{item.translation}</Text>
+          <Text style={styles.surahMeta}>{t(item.translation)}</Text>
         </Pressable>
 
         <Text style={styles.arabicName}>{item.arabic}</Text>
@@ -77,14 +94,14 @@ export default function SurahsScreen() {
           accessibilityRole="button"
           accessibilityLabel={
             isFav
-              ? `Remove ${item.name} from favourites`
-              : `Add ${item.name} to favourites`
+              ? `${t('Remove from favourites')}: ${item.name}`
+              : `${t('Add to favourites')}: ${item.name}`
           }
         >
           <Heart
             size={19}
-            color={isFav ? colors.emerald : colors.muted}
-            fill={isFav ? colors.emerald : 'transparent'}
+            color={isFav ? colors.gold : colors.muted}
+            fill={isFav ? colors.gold : 'transparent'}
           />
         </Pressable>
 
@@ -92,9 +109,18 @@ export default function SurahsScreen() {
           style={styles.playButton}
           onPress={() => handlePlay(item.number)}
           accessibilityRole="button"
-          accessibilityLabel={`Play ${item.name}`}
+          accessibilityLabel={`${t('Play')} ${item.name}`}
+          accessibilityState={{
+            selected: isSelected,
+            disabled: audioPlayer.isLoading,
+          }}
+          disabled={audioPlayer.isLoading}
         >
-          <Play size={15} color={colors.white} fill={colors.white} />
+          {isSelected && audioPlayer.isPlaying ? (
+            <Pause size={15} color={colors.white} fill={colors.white} />
+          ) : (
+            <Play size={15} color={colors.white} fill={colors.white} />
+          )}
         </Pressable>
       </View>
     );
@@ -108,11 +134,9 @@ export default function SurahsScreen() {
         </View>
 
         <View style={styles.headingText}>
-          <Text style={styles.eyebrow}>THE COLLECTION</Text>
-          <Text style={styles.title}>Surah Library</Text>
-          <Text style={styles.subtitle}>
-            Every surah, ready for your listening journey.
-          </Text>
+          <Text style={styles.eyebrow}>{t('RECITATION LIBRARY')}</Text>
+          <Text style={styles.title}>{t('Surah Library')}</Text>
+          <Text style={styles.subtitle}>{t('Browse Mishary Alafasy complete collection of surah recitations.')}</Text>
         </View>
       </View>
 
@@ -122,18 +146,18 @@ export default function SurahsScreen() {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search surah name, translation or number"
+          placeholder={t('Search surah name, translation or number')}
           placeholderTextColor={colors.muted}
           style={styles.searchInput}
           returnKeyType="search"
-          accessibilityLabel="Search surahs"
+          accessibilityLabel={t('Search surahs')}
         />
 
         {search.length > 0 && (
           <Pressable
             onPress={() => setSearch('')}
             accessibilityRole="button"
-            accessibilityLabel="Clear search"
+            accessibilityLabel={t('Clear search')}
           >
             <X size={19} color={colors.muted} />
           </Pressable>
@@ -141,8 +165,8 @@ export default function SurahsScreen() {
       </View>
 
       <View style={styles.listHeading}>
-        <Text style={styles.listTitle}>All Surahs</Text>
-        <Text style={styles.count}>{filteredSurahs.length} surahs</Text>
+        <Text style={styles.listTitle}>{t('All Surahs')}</Text>
+        <Text style={styles.count}>{filteredSurahs.length} {t('surahs')}</Text>
       </View>
 
       <FlatList
@@ -155,10 +179,8 @@ export default function SurahsScreen() {
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Search size={28} color={colors.muted} />
-            <Text style={styles.emptyTitle}>No surahs found</Text>
-            <Text style={styles.emptySubtitle}>
-              Try another name or surah number.
-            </Text>
+            <Text style={styles.emptyTitle}>{t('No surahs found')}</Text>
+            <Text style={styles.emptySubtitle}>{t('Try another name or surah number.')}</Text>
           </View>
         }
       />
@@ -166,10 +188,11 @@ export default function SurahsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.ivory,
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -197,7 +220,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   title: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 25,
     fontWeight: '700',
     marginTop: 2,
@@ -213,16 +236,17 @@ const styles = StyleSheet.create({
     marginHorizontal: 22,
     paddingHorizontal: 14,
     height: 52,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 16,
     gap: 10,
   },
-  searchInput: {
-    flex: 1,
-    color: colors.text,
-    fontSize: 14,
+    searchInput: {
+      flex: 1,
+      color: colors.text,
+      fontSize: 12,
+      fontFamily: APP_FONT_FAMILY,
     paddingVertical: 0,
   },
   listHeading: {
@@ -244,16 +268,16 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 22,
-    paddingBottom: 24,
+    paddingBottom: 150,
   },
   surahRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 76,
+    minHeight: 68,
     paddingHorizontal: 10,
     paddingVertical: 10,
     marginBottom: 9,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 17,
@@ -271,7 +295,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.emerald,
   },
   numberText: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -293,7 +317,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   arabicName: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 19,
     marginLeft: 2,
   },
@@ -328,4 +352,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 7,
   },
-});
+  });
+}

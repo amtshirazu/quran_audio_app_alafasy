@@ -1,21 +1,29 @@
 
 import React from 'react';
 import {
+  Alert,
   View,
-  Text,
   Pressable,
   FlatList,
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Heart, Play, BookOpen } from 'lucide-react-native';
+import { Heart, Pause, Play, BookOpen } from 'lucide-react-native';
 
 import { surahs } from '../data/surahs';
-import colors from '../theme/colors';
 import { useFavourites } from '../context/FavouritesContext';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
+import { useTheme } from '../context/ThemeContext';
+import type { AppColors } from '../theme/theme';
+import Text from '../components/AppText';
+import { useLocalization } from '../context/LocalizationContext';
 
 export default function FavouritesScreen() {
   const { favourites, toggleFavourite } = useFavourites();
+  const { t } = useLocalization();
+  const audioPlayer = useAudioPlayer();
+  const { colors } = useTheme();
+  const styles = createStyles(colors);
 
   const favouriteSurahs = favourites.flatMap((number) => {
     const surah = surahs.find((item) => item.number === number);
@@ -33,18 +41,16 @@ export default function FavouritesScreen() {
         </View>
 
         <View style={styles.headingText}>
-          <Text style={styles.eyebrow}>YOUR COLLECTION</Text>
-          <Text style={styles.title}>Favourites</Text>
-          <Text style={styles.subtitle}>
-            The surahs closest to your heart.
-          </Text>
+          <Text style={styles.eyebrow}>{t('YOUR COLLECTION')}</Text>
+          <Text style={styles.title}>{t('Favourites')}</Text>
+          <Text style={styles.subtitle}>{t('Your saved recitations, ready whenever you return.')}</Text>
         </View>
       </View>
 
       <View style={styles.listHeading}>
-        <Text style={styles.listTitle}>Saved Surahs</Text>
+        <Text style={styles.listTitle}>{t('Saved Surahs')}</Text>
         <Text style={styles.count}>
-          {favouriteSurahs.length} saved
+          {favouriteSurahs.length} {t('saved')}
         </Text>
       </View>
 
@@ -66,37 +72,46 @@ export default function FavouritesScreen() {
 
             <View style={styles.surahInfo}>
               <Text style={styles.surahName}>{item.name}</Text>
-              <Text style={styles.surahMeta}>{item.translation}</Text>
+              <Text style={styles.surahMeta}>{t(item.translation)}</Text>
             </View>
-
-            <Text style={styles.arabicName}>{item.arabic}</Text>
 
             <Pressable
               style={styles.actionButton}
               onPress={() => toggleFavourite(item.number)}
               accessibilityRole="button"
-              accessibilityLabel={`Remove ${item.name} from favourites`}
+              accessibilityLabel={`${t('Remove from favourites')}: ${item.name}`}
             >
               <Heart
                 size={19}
-                color={colors.emerald}
-                fill={colors.emerald}
+                color={colors.gold}
+                fill={colors.gold}
               />
             </Pressable>
 
             <Pressable
               style={styles.playButton}
               onPress={() => {
-                // Real audio playback will be connected later.
+                const action =
+                  audioPlayer.currentSurah?.number === item.number
+                    ? audioPlayer.togglePlayback()
+                    : audioPlayer.playSurah(item.number);
+                action.catch((error: unknown) => {
+                  Alert.alert(
+                    t('Could not play this surah'),
+                    error instanceof Error ? error.message : String(error),
+                  );
+                });
               }}
               accessibilityRole="button"
-              accessibilityLabel={`Play ${item.name}`}
+              accessibilityLabel={`${t('Play')} ${item.name}`}
+              disabled={audioPlayer.isLoading}
             >
-              <Play
-                size={15}
-                color={colors.white}
-                fill={colors.white}
-              />
+              {audioPlayer.currentSurah?.number === item.number &&
+              audioPlayer.isPlaying ? (
+                <Pause size={15} color={colors.white} fill={colors.white} />
+              ) : (
+                <Play size={15} color={colors.white} fill={colors.white} />
+              )}
             </Pressable>
           </View>
         )}
@@ -106,14 +121,9 @@ export default function FavouritesScreen() {
               <BookOpen size={30} color={colors.gold} />
             </View>
 
-            <Text style={styles.emptyTitle}>
-              Your collection starts here
-            </Text>
+            <Text style={styles.emptyTitle}>{t('No saved surahs yet')}</Text>
 
-            <Text style={styles.emptySubtitle}>
-              Save surahs from the library by tapping the heart.
-              They will appear here for easy access.
-            </Text>
+            <Text style={styles.emptySubtitle}>{t('Tap the heart beside a surah in the library to save it for convenient listening.')}</Text>
           </View>
         }
       />
@@ -121,10 +131,11 @@ export default function FavouritesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.ivory,
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: 'row',
@@ -152,7 +163,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   title: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 25,
     fontWeight: '700',
     marginTop: 2,
@@ -181,7 +192,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 22,
-    paddingBottom: 24,
+    paddingBottom: 150,
   },
   emptyListContent: {
     flexGrow: 1,
@@ -189,11 +200,11 @@ const styles = StyleSheet.create({
   surahRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 76,
+    minHeight: 68,
     paddingHorizontal: 10,
     paddingVertical: 10,
     marginBottom: 9,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 17,
@@ -208,7 +219,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   numberText: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -227,7 +238,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   arabicName: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 19,
   },
   actionButton: {
@@ -261,7 +272,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   emptyTitle: {
-    color: colors.emerald,
+    color: colors.text,
     fontSize: 19,
     fontWeight: '700',
     textAlign: 'center',
@@ -273,4 +284,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 10,
   },
-});
+  });
+}

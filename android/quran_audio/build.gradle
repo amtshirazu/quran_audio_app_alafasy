@@ -1,0 +1,10 @@
+plugins {
+    id 'com.android.asset-pack'
+}
+
+assetPack {
+    packName = "quran_audio"
+    dynamicDelivery {
+        deliveryType = "install-time"
+    }
+}

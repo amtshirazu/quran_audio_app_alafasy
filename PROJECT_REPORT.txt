@@ -1,0 +1,373 @@
+ALAFASY QURAN - PROJECT AND TESTING REPORT
+Updated: 18 October 2026
+
+WHY THIS REPORT EXISTS
+----------------------
+This report summarizes the work done on the Alafasy Quran app, how the main
+parts fit together, the problems encountered and their resolutions, and what
+has and has not been verified. It is written to help the project owner
+understand the engineering decisions, not just the final result.
+
+
+1. WHAT THE APP IS
+------------------
+Alafasy Quran is an Android-first React Native app for browsing the 114 Quran
+surahs and listening to Mishary Rashid Alafasy's recitations. The goal chosen
+for the audio is that every surah should be available offline after
+installation, rather than requiring users to download tracks one by one.
+
+The app currently includes:
+- A home screen and searchable list of all 114 surahs.
+- Surah details in Arabic, transliteration, and English translation.
+- On-device favourites.
+- A persistent mini-player and a full player screen.
+- Play, pause, seek, previous, and next controls.
+- Shuffle, Repeat Off, Repeat One, and Repeat All.
+- Saving the last surah, position, and playback modes, then restoring paused.
+- All 114 recordings packaged for install-time offline delivery on Android.
+- Light and dark appearance choices.
+
+
+2. HOW THE APP IS PUT TOGETHER
+------------------------------
+The simplest accurate description is: a React Native modular monolith.
+
+"Monolith" means this is one app, built and released together; it is not split
+into separate network services. "Modular" means the code is divided into
+parts with different jobs:
+
+- Screens in src/screens display Home, Surahs, Favourites, and Settings.
+- Reusable UI in src/components includes the player overlay.
+- Contexts in src/context share app-wide state. AudioPlayerContext is the UI's
+  shared view of the current player; ThemeContext shares theme settings.
+- Services in src/services perform work that should not live in screen
+  components. audioPlayer.ts wraps TrackPlayer and playbackSession.ts handles
+  saved playback state.
+- Surah data in src/data describes the surah names and translations.
+- Android Kotlin code bridges React Native to Android-only packaged audio.
+- The quran_audio Android asset-pack module contains the recitation files.
+
+Playback flow, in plain language:
+1. A screen asks AudioPlayerContext to play a selected surah.
+2. The context updates the player-facing state and calls the audio service.
+3. The audio service asks the Kotlin bridge for that surah's local audio file.
+4. The bridge copies the audio from the installed Android asset pack into the
+   app cache and returns a file path.
+5. TrackPlayer plays that file and reports progress/state events.
+6. The context turns those events into state shown by the mini-player and full
+   player. A separate playback service handles events when the UI is not open.
+
+This is not a strict Clean Architecture implementation. It does use useful
+separation of concerns: screens render and forward user actions, contexts
+coordinate shared UI state, services own playback/storage operations, and
+native code handles Android-specific audio asset access.
+
+Engineering principles used:
+- Separation of concerns: UI, player logic, persistence, and Android asset
+  access have different owners.
+- Single source of truth: the shared audio-player context represents player
+  state for the app UI; TrackPlayer remains authoritative for live native
+  playback when a track is already active.
+- Encapsulation: screens call player actions rather than implementing native
+  queue or asset-pack details themselves.
+- Validation at boundaries: saved playback data and requested surah numbers
+  are checked before use.
+- Fail visibly: storage, initialization, and asset errors are logged/reported
+  rather than silently appearing as successful playback.
+- Avoid unnecessary state: one surah is loaded into TrackPlayer at a time;
+  app code chooses the following surah.
+- Test at multiple levels: unit tests cover state/serialization, while
+  emulator checks exercise Android audio, assets, and process restarts.
+
+
+3. AUDIO FORMAT AND DELIVERY CHOICE
+-----------------------------------
+All 114 source recordings were converted to 24 kbps mono MP3 at 22.05 kHz.
+The user listened to lower-bitrate comparisons and chose 24 kbps as an
+acceptable compromise between clarity and download/storage size.
+
+Measured totals:
+- The 114 converted MP3 files total 322,026,707 bytes (about 322 MB decimal).
+- A recent local debug AAB was about 367.6 MB.
+- A previous local release AAB was about 368.5 MB.
+
+These are different measurements. The MP3 total is the audio payload before
+Android App Bundle compression. An AAB is the bundle file used to generate
+device-specific APK splits. Neither number should be casually described as
+the exact Play Store download size or final installed storage use.
+
+Delivery uses Play Asset Delivery (PAD), with an install-time asset pack
+named quran_audio. "Install-time" means Android delivers the audio as part of
+installing the app; it is not a later optional download. PAD is not limited
+to games: it is an Android delivery mechanism for app assets too. It does not
+make a large audio collection disappear from the user's download or storage
+requirements.
+
+The full pack is larger than the standard 200 MB base APK threshold, which is
+one reason the asset-pack route was considered. Actual Play delivery,
+download-size presentation, and store behavior still need to be checked by
+an authorized Play Console account holder.
+
+
+4. PLAYBACK AND RESTORATION BEHAVIOR
+------------------------------------
+TrackPlayer is the native playback engine. The app keeps only one surah in
+its TrackPlayer queue at a time. The app service decides what surah to load
+next; it does not preload all 114 into TrackPlayer.
+
+Repeat behavior:
+- Repeat Off: when the current surah ends, it remains selected at 00:00 and
+  paused. Pressing Play starts that same surah again.
+- Repeat One: the current surah starts over when it ends.
+- Repeat All: the next surah starts automatically; the sequence wraps at the
+  end of the full collection.
+- Shuffle: when a surah ends, another surah is selected from a shuffled
+  selection rather than simply using the next number.
+
+Shuffle and repeat are mutually exclusive in the UI/state: enabling shuffle
+turns repeat off; choosing a repeat mode turns shuffle off.
+
+Session persistence uses AsyncStorage. A validated session stores the surah
+number, playback position, repeat mode, and shuffle setting. The app saves
+after state changes and when it leaves the foreground. On relaunch, the saved
+surah/position/mode are restored without starting audio. If Android's
+TrackPlayer already has active playback, the live native track and position
+take priority over stale saved values.
+
+
+5. WORK COMPLETED, IN ROUGH ORDER
+---------------------------------
+React Native / Kotlin compatibility:
+- Patched react-native-track-player for the React Native 0.87 Android/Kotlin
+  compile and runtime issues encountered.
+- This included nullable Bundle handling, the onBind override nullability,
+  React Native New Architecture compatibility for async native methods, and
+  using the current React context for service event emission.
+- Saved the node_modules changes in patches/
+  (react-native-track-player+4.0.0-rc09.patch).
+- Added patch-package as a development dependency if needed by the project
+  setup and configured the postinstall script so npm install reapplies it.
+
+Audio delivery prototype and full collection:
+- First tested an individual short recitation through an install-time asset
+  pack and native bridge.
+- Compared source audio with compressed mono encodings.
+- Converted the full set to the user-selected 24 kbps mono target.
+- Added all 114 files to the quran_audio install-time pack.
+- Added a Kotlin module that reads a selected pack asset into app cache for
+  TrackPlayer.
+- Removed the temporary audio test control after the real player flow existed.
+
+Player and app UX:
+- Connected surah browsing, favourites, and featured listening to the real
+  player.
+- Added a persistent mini-player and a full-screen player with progress,
+  seeking, playback, and navigation controls.
+- Added shuffle and all three repeat modes with the behavior above.
+- Avoided the former unwanted default-to-Ar-Rahman behavior for Listen Now;
+  the current home experience starts with Al-Fatihah or lets the user choose.
+- Kept the player screen mounted/updated when changing tracks instead of
+  unnecessarily closing and reopening it.
+- Corrected previous-track behavior so pressing Previous near the start can
+  move to the prior surah instead of requiring a second press after seeking
+  to zero.
+
+Playback-session persistence:
+- Added validated session read/write and malformed-data handling.
+- Restores last surah, position, repeat, and shuffle after app process restart.
+- Restores paused rather than unexpectedly autoplaying.
+- Added unit tests for valid/invalid storage data and native/session restore
+  decisions.
+
+Testing and release preparation:
+- Added Jest configuration/mocks needed to test React Native and ESM
+  dependencies in this project.
+- Added a release-signing guard. Release builds now fail explicitly if proper
+  upload signing values are absent, rather than silently using the debug key.
+- Updated README setup, Android build, and internal testing guidance.
+- Fixed outdated Settings text that still claimed playback preferences would
+  only exist after the player was added.
+
+
+6. CHALLENGES AND HOW WE LEARNED FROM THEM
+------------------------------------------
+Challenge: Kotlin nullability and React Native 0.87 changes
+What happened: Native dependency APIs and override signatures did not match
+the new compiler/runtime expectations.
+Resolution: Applied small compatibility changes to TrackPlayer and retained
+them as a patch-package patch, so reinstalling dependencies does not erase
+them.
+Lesson: Never rely on editing node_modules alone. Persist dependency fixes as
+a patch or upstream change, then verify a clean install/build.
+
+Challenge: An initial successful Gradle command did not prove a fresh APK
+had been produced.
+What happened: Gradle reported success while the APK timestamp was old and
+tasks were UP-TO-DATE.
+Resolution: Checked output timestamps and task output rather than treating
+"BUILD SUCCESSFUL" alone as proof of a newly built artifact.
+Lesson: Confirm the artifact you intend to test, not just the command exit
+code.
+
+Challenge: Debug builds and the PAD release install did not contain the same
+audio.
+What happened: The ordinary debug APK had a debug-only fallback for limited
+audio, while the complete 114-file library was delivered by the asset pack.
+Resolution: Built a debug Android App Bundle including the asset pack and
+used Bundletool to make device-specific APK splits for local testing.
+Lesson: A plain APK and a PAD AAB are not equivalent test artifacts.
+
+Challenge: Bundletool itself was not initially available as a standalone
+command.
+Resolution: Used the official standalone Bundletool release, generated a
+device specification, built splits from the AAB, and installed those splits.
+Lesson: The bundle must be split for the target device; an AAB is not directly
+installed with adb install.
+
+Challenge: There were two emulators, and the spare one disappeared.
+What happened: emulator-5554 and emulator-5556 have independent app installs
+and app data. When the spare emulator was no longer available, testing
+continued on emulator-5554.
+Important correction: The current debug-signed test bundle was installed on
+emulator-5554, replacing the previous PAD-installed copy there. This changed
+that emulator's installed build. The source code and audio files stayed in
+the project. The install was useful for testing, but it should have been
+clearly disclosed and approved before replacing the existing install.
+Lesson: Always check "adb devices", use an explicit "adb -s <device-id>"
+target, identify what is installed, and ask before replacing an install that
+may contain valuable user state. Emulator state is not source control.
+
+Challenge: Process restart can make old and saved player state look different.
+What happened: Android can keep a native media session alive even when the
+app process is force-stopped; an older installed bundle also did not prove
+the new AsyncStorage restoration code was running.
+Resolution: Built and installed the current bundle, then verified the visible
+surah, native media-session title/position, and paused state after relaunch.
+Lesson: For mobile lifecycle tests, verify app version/build, UI state, and
+native media state together.
+
+Challenge: Local testing is not Google Play testing.
+What happened: Play Console access is not currently available, and the local
+debug AAB is debug-signed.
+Resolution: Used Bundletool local split installation for development tests
+without claiming that it proves Play's final delivery behavior.
+Lesson: A debug key is not an upload key. Do not publish a debug-signed AAB.
+
+Challenge: A Settings description became stale as features were implemented.
+Resolution: Updated it to describe the actual player repeat/shuffle choices.
+Lesson: User-facing copy is part of the product and should be kept in sync
+with behavior.
+
+
+7. WHAT WAS TESTED AND WHAT PASSED
+----------------------------------
+Automated checks on the current code:
+- ESLint passed.
+- TypeScript check (npx tsc --noEmit) passed.
+- Jest: 3 suites and 15 tests passed.
+- git diff --check passed; Git printed line-ending notices for some existing
+  files, not whitespace errors.
+
+Android emulator checks:
+- The current debug AAB included the React Native JavaScript bundle and all
+  114 install-time audio assets.
+- Confirmed the app had no active default network during offline playback.
+- Al-Fatihah, Ya-Sin, and Al-Baqarah loaded and played from packaged audio.
+- Next and Previous changed surahs offline.
+- Sought Al-Baqarah to about 50:35, paused, force-stopped, and reopened the
+  app. It restored Al-Baqarah at about the same position and remained paused.
+- Repeat One was restored after restart; playback restarted the same
+  Al-Baqarah track at the beginning after reaching the end.
+- Repeat All was restored after restart; Al-Baqarah advanced to Ali Imran.
+- Shuffle was restored after restart; when Ali Imran ended, playback moved to
+  a different surah (Al-Jinn), rather than its sequential neighbor.
+- Repeat Off at the end of Al-Fatihah left Al-Fatihah selected at 00:00 and
+  paused.
+- Favourites remained available after process restart; the emulator showed
+  seven saved favourites.
+- Light/dark appearance choices and Settings screens were inspected.
+- Emulator connectivity was restored after the offline tests and playback
+  was left paused.
+
+The near-end tests used the seek bar so they did not require listening to an
+entire long surah. They exercised real Android playback and end-of-track
+handling, but are not a substitute for long-duration reliability testing on
+physical devices.
+
+
+8. CURRENT LIMITS AND ITEMS STILL TO DO
+---------------------------------------
+- No Google Play Console internal track test has happened. It requires an
+  authorized Play account and a proper private upload key.
+- The tested local AAB is debug-signed and must not be uploaded as a release.
+- Actual Play download size, install prompts, delivery timing, and support
+  across physical Android devices remain to be validated through Play.
+- Audio distribution/recording rights and appropriate attribution should be
+  confirmed before public release.
+- The current offline asset-pack delivery is Android-specific. iOS packaging
+  and playback need their own implementation and testing before claiming iOS
+  support.
+- Emulator testing does not cover every device, Android version, audio route,
+  interruption, or long-duration playback condition.
+- Release readiness also needs a final review of app identity, icon/screenshots,
+  privacy/data disclosures, target SDK requirements, and store listing.
+
+
+9. A PRACTICAL DEVELOPMENT WORKFLOW
+-----------------------------------
+When working with two emulators:
+1. Run "adb devices" and identify each emulator.
+2. Use commands with an explicit target, for example:
+   adb -s emulator-5554 shell ...
+3. Before installing, check the installed package and ask if replacing it
+   could discard a useful test build or its app data.
+4. Keep a known-good AAB and its signing identity separate from debug builds.
+5. After testing, restore airplane mode/network state and pause audio.
+
+When building:
+- Use the debug APK for ordinary app UI work when the required assets are
+  present in that build.
+- Use a debug AAB plus Bundletool when the test depends on Play Asset
+  Delivery.
+- Verify the built artifact's timestamp, size, contents, and device install.
+- Run lint, TypeScript, and Jest after source changes.
+- Keep the upload keystore/passwords outside the repository.
+
+When something fails:
+- First distinguish source-code failure from a stale build, wrong emulator,
+  missing asset split, or stale native media session.
+- Gather logs and state before changing code.
+- Change the smallest responsible layer and retest the original scenario.
+
+
+10. SHORT GLOSSARY
+------------------
+React Native: Framework that builds a mobile app using JavaScript/TypeScript
+and native Android/iOS components.
+
+TrackPlayer: Native-backed audio playback library used by the app.
+
+AsyncStorage: On-device key/value storage used here for preferences and the
+saved playback session.
+
+PAD (Play Asset Delivery): Android delivery mechanism used to distribute the
+large audio collection as an install-time asset pack.
+
+AAB (Android App Bundle): Android publishing/build format from which Android
+creates device-specific APKs. It is not itself installed directly like an
+APK.
+
+APK: Installable Android package. Bundletool can create device-specific APK
+splits from an AAB for local testing.
+
+Debug signing key: Development-only signing identity. It is not the private
+upload key required for publishing.
+
+Metro: React Native's JavaScript bundler/development server. A release-style
+or non-debuggable test bundle embeds JavaScript and does not require Metro at
+runtime.
+
+Surah: A chapter of the Quran; the app contains all 114.
+
+
+END OF REPORT

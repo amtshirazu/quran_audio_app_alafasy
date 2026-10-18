@@ -58,6 +58,21 @@ react {
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
 def enableProguardInReleaseBuilds = false
+def releaseSigningValue = { String name ->
+    providers.gradleProperty(name)
+        .orElse(providers.environmentVariable(name))
+        .getOrNull()
+}
+def releaseStoreFile = releaseSigningValue("ALAFASY_UPLOAD_STORE_FILE")
+def releaseStorePassword = releaseSigningValue("ALAFASY_UPLOAD_STORE_PASSWORD")
+def releaseKeyAlias = releaseSigningValue("ALAFASY_UPLOAD_KEY_ALIAS")
+def releaseKeyPassword = releaseSigningValue("ALAFASY_UPLOAD_KEY_PASSWORD")
+def releaseSigningConfigured = [
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+].every { it }
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -76,6 +91,15 @@ android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
+    assetPacks = [":quran_audio"]
+
+    // Keep the complete recitation library available to locally installed debug APKs.
+    // Release builds continue to load audio from the install-time Play Asset Pack.
+    sourceSets {
+        debug {
+            assets.srcDir("../quran_audio/src/main/assets")
+        }
+    }
 
     namespace "com.alafasyquran"
     defaultConfig {
@@ -92,19 +116,41 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (releaseSigningConfigured) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            signingConfig releaseSigningConfigured ? signingConfigs.release : null
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
     }
+}
+
+tasks.register("verifyReleaseSigning") {
+    doLast {
+        if (!releaseSigningConfigured) {
+            throw new GradleException(
+                "Release signing is not configured. Set ALAFASY_UPLOAD_STORE_FILE, " +
+                    "ALAFASY_UPLOAD_STORE_PASSWORD, ALAFASY_UPLOAD_KEY_ALIAS, and " +
+                    "ALAFASY_UPLOAD_KEY_PASSWORD in your local environment or Gradle user properties."
+            )
+        }
+    }
+}
+
+tasks.matching { it.name in ["assembleRelease", "bundleRelease"] }.configureEach {
+    dependsOn tasks.named("verifyReleaseSigning")
 }
 
 dependencies {
