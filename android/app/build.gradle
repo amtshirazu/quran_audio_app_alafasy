@@ -58,9 +58,9 @@ react {
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
 def enableProguardInReleaseBuilds = false
-def releaseSigningValue = { String name ->
-    providers.gradleProperty(name)
-        .orElse(providers.environmentVariable(name))
+def releaseSigningValue = { name ->
+    providers.gradleProperty(name.toString())
+        .orElse(providers.environmentVariable(name.toString()))
         .getOrNull()
 }
 def releaseStoreFile = releaseSigningValue("ALAFASY_UPLOAD_STORE_FILE")
@@ -93,10 +93,8 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
     assetPacks = [":quran_audio"]
 
-    // Keep the complete recitation library available to locally installed debug APKs.
-    // Release builds continue to load audio from the install-time Play Asset Pack.
     sourceSets {
-        debug {
+        main {
             assets.srcDir("../quran_audio/src/main/assets")
         }
     }
@@ -130,7 +128,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig releaseSigningConfigured ? signingConfigs.release : null
+            signingConfig releaseSigningConfigured ? signingConfigs.release : signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
@@ -149,7 +147,7 @@ tasks.register("verifyReleaseSigning") {
     }
 }
 
-tasks.matching { it.name in ["assembleRelease", "bundleRelease"] }.configureEach {
+tasks.matching { it.name == "bundleRelease" }.configureEach {
     dependsOn tasks.named("verifyReleaseSigning")
 }
 

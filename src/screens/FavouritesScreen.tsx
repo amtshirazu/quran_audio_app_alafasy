@@ -239,7 +239,7 @@ function createStyles(colors: AppColors) {
   },
   arabicName: {
     color: colors.text,
-    fontSize: 19,
+    fontSize: 15,
   },
   actionButton: {
     width: 32,

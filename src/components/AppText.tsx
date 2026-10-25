@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 
 export const APP_FONT_FAMILY = 'ScheherazadeNew';
-const APP_TEXT_SCALE = 0.9;
+const ARABIC_TEXT_SCALE = 0.95;
 
 export default function AppText({ style, children, ...props }: TextProps) {
   const resolvedStyle = StyleSheet.flatten(style);
@@ -20,9 +20,13 @@ export default function AppText({ style, children, ...props }: TextProps) {
       {...props}
       style={[
         style,
-        hasArabicText ? { fontFamily: APP_FONT_FAMILY } : null,
-        typeof fontSize === 'number'
-          ? { fontSize: Math.max(fontSize * APP_TEXT_SCALE, fontSize < 10 ? 9 : 0) }
+        hasArabicText
+          ? [
+              { fontFamily: APP_FONT_FAMILY },
+              typeof fontSize === 'number'
+                ? { fontSize: Math.max(Math.round(fontSize * ARABIC_TEXT_SCALE), 10) }
+                : null,
+            ]
           : null,
       ]}
     >

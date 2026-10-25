@@ -9,7 +9,7 @@ import {
   type LayoutChangeEvent,
   type GestureResponderEvent,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   BookOpen,
   ChevronDown,
@@ -31,10 +31,13 @@ import { useLocalization } from '../context/LocalizationContext';
 
 export default function AudioPlayerOverlay() {
   const player = useAudioPlayer();
-  const { t } = useLocalization();
+  const insets = useSafeAreaInsets();
+  const { t, language } = useLocalization();
   const { colors } = useTheme();
   const styles = createStyles(colors);
   const [seekBarWidth, setSeekBarWidth] = useState(0);
+
+  const bottomOffset = Math.max(insets.bottom, 8) + 66;
 
   function runAction(
     action: () => Promise<void>,
@@ -78,7 +81,7 @@ export default function AudioPlayerOverlay() {
 
   return (
     <>
-      <View style={styles.miniPlayer}>
+      <View style={[styles.miniPlayer, { bottom: bottomOffset }]}>
         <Pressable
           style={styles.miniInfo}
           onPress={player.openPlayer}
@@ -153,8 +156,9 @@ export default function AudioPlayerOverlay() {
               {player.currentSurah.name}
             </Text>
             <Text style={styles.translation}>
-              {t('Surah')} {player.currentSurah.number} ·{' '}
-              {t(player.currentSurah.translation)}
+              {language === 'ar'
+                ? t(player.currentSurah.translation)
+                : `${t('Surah')} ${player.currentSurah.number} · ${t(player.currentSurah.translation)}`}
             </Text>
             <Text style={styles.reciter}>Mishary Rashid Alafasy</Text>
 
@@ -448,7 +452,10 @@ function createStyles(colors: AppColors) {
     },
     arabicName: {
       color: colors.gold,
-      fontSize: 30,
+      width: '100%',
+      flexShrink: 0,
+      textAlign: 'center',
+      fontSize: 24,
       marginBottom: 8,
     },
     surahName: {

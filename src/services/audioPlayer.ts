@@ -10,7 +10,7 @@ import { surahs } from '../data/surahs';
 import type { PlaybackSession } from './playbackSession';
 
 type QuranAudioAssetsModule = {
-  copySurahToCache(surahNumber: number): Promise<string>;
+  getSurahAssetUri(surahNumber: number): Promise<string>;
 };
 
 const quranAudioAssets = NativeModules.QuranAudioAssets as
@@ -18,6 +18,9 @@ const quranAudioAssets = NativeModules.QuranAudioAssets as
 
 let setupPromise: Promise<void> | null = null;
 let trackChangeQueue: Promise<void> = Promise.resolve();
+let queuePreparation: Promise<void> = Promise.resolve();
+let handlingQueueEnd = false;
+let queuedNextForTrack: { currentId: string; nextNumber: number } | null = null;
 export type RepeatModeName = 'off' | 'one' | 'all';
 
 let repeatMode: RepeatModeName = 'off';
@@ -102,15 +105,39 @@ export async function setRepeatMode(
 ): Promise<void> {
   const nativeMode = mode === 'one' ? RepeatMode.Track : RepeatMode.Off;
   await setupAudioPlayer();
+  await TrackPlayer.removeUpcomingTracks();
+  queuedNextForTrack = null;
   await TrackPlayer.setRepeatMode(nativeMode);
   repeatMode = mode;
   shuffleEnabled = false;
   shuffleBag = [];
   shuffleHistory = [];
+
+  if (mode === 'all') {
+    const currentTrack = await TrackPlayer.getActiveTrack();
+    const currentNumber = getSurahNumberFromTrack(currentTrack);
+    if (currentNumber !== null) {
+      await queueFollowingSurah(currentTrack);
+    }
+  }
 }
 
 export function getShuffleEnabled(): boolean {
   return shuffleEnabled;
+}
+
+export function recordAutomaticSurahChange(previousTrack?: Track): void {
+  if (!shuffleEnabled) {
+    return;
+  }
+
+  const previousNumber = getSurahNumberFromTrack(previousTrack);
+  if (
+    previousNumber !== null &&
+    shuffleHistory[shuffleHistory.length - 1] !== previousNumber
+  ) {
+    shuffleHistory.push(previousNumber);
+  }
 }
 
 function createShuffleBag(excludedSurah: number | null): number[] {
@@ -132,12 +159,22 @@ export async function setShuffleEnabled(
 ): Promise<void> {
   if (enabled) {
     await setupAudioPlayer();
+    await TrackPlayer.removeUpcomingTracks();
+    queuedNextForTrack = null;
     await TrackPlayer.setRepeatMode(RepeatMode.Off);
     repeatMode = 'off';
+  } else {
+    await TrackPlayer.removeUpcomingTracks();
+    queuedNextForTrack = null;
   }
   shuffleEnabled = enabled;
   shuffleHistory = [];
   shuffleBag = enabled ? createShuffleBag(currentSurahNumber) : [];
+
+  if (enabled && currentSurahNumber !== null) {
+    const currentTrack = await TrackPlayer.getActiveTrack();
+    await queueFollowingSurah(currentTrack);
+  }
 }
 
 function getNextSurahNumber(currentNumber: number): number | null {
@@ -155,6 +192,89 @@ function getNextSurahNumber(currentNumber: number): number | null {
   return repeatMode === 'all' ? 1 : null;
 }
 
+function trackIdForSurah(surahNumber: number): string {
+  return `alafasy-surah-${surahNumber.toString().padStart(3, '0')}`;
+}
+
+function createSurahTrack(surahNumber: number, audioUri: string): Track {
+  const surah = surahs.find((item) => item.number === surahNumber);
+  if (!surah) {
+    throw new RangeError('Surah number must be between 1 and 114.');
+  }
+
+  return {
+    id: trackIdForSurah(surahNumber),
+    url: audioUri,
+    title: surah.name,
+    artist: 'Mishary Rashid Alafasy',
+    album: 'The Holy Quran',
+    description: surah.translation,
+  };
+}
+
+/** Queue the upcoming Surah while the current one is still playing. */
+export function queueFollowingSurah(currentTrack?: Track): Promise<void> {
+  if (!currentTrack || (repeatMode !== 'all' && !shuffleEnabled)) {
+    return Promise.resolve();
+  }
+
+  const currentNumber = getSurahNumberFromTrack(currentTrack);
+  if (currentNumber === null) {
+    return Promise.resolve();
+  }
+
+  const operation = queuePreparation.then(async () => {
+    if (queuedNextForTrack?.currentId === String(currentTrack.id)) {
+      return;
+    }
+
+    const activeTrack = await TrackPlayer.getActiveTrack();
+    if (String(activeTrack?.id ?? '') !== String(currentTrack.id)) {
+      return;
+    }
+
+    const nextNumber = getNextSurahNumber(currentNumber);
+    if (nextNumber === null) {
+      return;
+    }
+
+    const queue = await TrackPlayer.getQueue();
+    const activeIndex = queue.findIndex(
+      (track) => String(track.id) === String(currentTrack.id),
+    );
+    const nextTrackId = trackIdForSurah(nextNumber);
+    if (
+      activeIndex >= 0 &&
+      queue.slice(activeIndex + 1).some(
+        (track) => String(track.id) === nextTrackId,
+      )
+    ) {
+      queuedNextForTrack = {
+        currentId: String(currentTrack.id),
+        nextNumber,
+      };
+      return;
+    }
+
+    if (!quranAudioAssets) {
+      throw new Error('Offline Quran playback is only available on Android.');
+    }
+
+    const audioUri = await quranAudioAssets.getSurahAssetUri(nextNumber);
+    await TrackPlayer.add(createSurahTrack(nextNumber, audioUri));
+    queuedNextForTrack = {
+      currentId: String(currentTrack.id),
+      nextNumber,
+    };
+  });
+
+  queuePreparation = operation.then(
+    () => undefined,
+    () => undefined,
+  );
+  return operation;
+}
+
 export async function replaceSurahTrack(
   surahNumber: number,
   autoplay = true,
@@ -169,18 +289,12 @@ export async function replaceSurahTrack(
     throw new Error('Offline Quran playback is only available on Android.');
   }
 
-  // Prepare the next file before touching the active track. This lets the
-  // current notification and media session stay alive while audio is copied.
-  const audioUri = await quranAudioAssets.copySurahToCache(surahNumber);
+  // Read the install-time asset directly instead of copying a full MP3 into
+  // the cache before every track change.
+  const audioUri = await quranAudioAssets.getSurahAssetUri(surahNumber);
 
-  await TrackPlayer.load({
-    id: `alafasy-surah-${surahNumber.toString().padStart(3, '0')}`,
-    url: audioUri,
-    title: surah.name,
-    artist: 'Mishary Rashid Alafasy',
-    album: 'The Holy Quran',
-    description: surah.translation,
-  });
+  queuedNextForTrack = null;
+  await TrackPlayer.load(createSurahTrack(surahNumber, audioUri));
   await TrackPlayer.setRepeatMode(
     repeatMode === 'one' ? RepeatMode.Track : RepeatMode.Off,
   );
@@ -188,6 +302,11 @@ export async function replaceSurahTrack(
   if (autoplay) {
     await TrackPlayer.play();
   }
+
+  const activeTrack = await TrackPlayer.getActiveTrack();
+  queueFollowingSurah(activeTrack).catch((error: unknown) => {
+    logPlaybackServiceError('prepare the next surah', error);
+  });
 }
 
 export async function playSurah(surahNumber: number): Promise<void> {
@@ -268,6 +387,14 @@ export async function skipToNextSurah(): Promise<void> {
   const currentNumber = getSurahNumberFromTrack(currentTrack);
 
   if (currentNumber !== null) {
+    if (
+      currentTrack &&
+      queuedNextForTrack?.currentId === String(currentTrack.id)
+    ) {
+      await TrackPlayer.skipToNext();
+      return;
+    }
+
     const nextNumber = getNextSurahNumber(currentNumber);
     if (nextNumber !== null) {
       await enqueueTrackChange(nextNumber);
@@ -298,25 +425,37 @@ export async function skipToPreviousSurah(): Promise<void> {
 export async function playFollowingSurah(
   endedTrack?: Track,
 ): Promise<void> {
-  const currentTrack = endedTrack ?? (await TrackPlayer.getActiveTrack());
-  const currentNumber = getSurahNumberFromTrack(currentTrack);
-
-  const state = await TrackPlayer.getPlaybackState();
-  if (state.state !== State.Ended || currentNumber === null) {
+  if (handlingQueueEnd) {
     return;
   }
 
-  if (repeatMode === 'off' && !shuffleEnabled) {
-    await TrackPlayer.seekTo(0);
-    await TrackPlayer.pause();
-    return;
-  }
+  handlingQueueEnd = true;
+  try {
+    // PlaybackQueueEnded is the authoritative signal that the active Surah
+    // has ended. The native state may already have moved away from Ended by
+    // the time this headless playback-service callback is handled.
+    const currentTrack = endedTrack ?? (await TrackPlayer.getActiveTrack());
+    const currentNumber = getSurahNumberFromTrack(currentTrack);
 
-  const nextNumber = repeatMode === 'one' && !shuffleEnabled
-    ? currentNumber
-    : getNextSurahNumber(currentNumber);
-  if (nextNumber !== null) {
-    await enqueueTrackChange(nextNumber);
+    if (currentNumber === null) {
+      return;
+    }
+
+    if (repeatMode === 'off' && !shuffleEnabled) {
+      await TrackPlayer.pause();
+      await TrackPlayer.seekTo(0);
+      return;
+    }
+
+    const nextNumber = repeatMode === 'one' && !shuffleEnabled
+      ? currentNumber
+      : getNextSurahNumber(currentNumber);
+    if (nextNumber !== null) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      await enqueueTrackChange(nextNumber);
+    }
+  } finally {
+    handlingQueueEnd = false;
   }
 }
 

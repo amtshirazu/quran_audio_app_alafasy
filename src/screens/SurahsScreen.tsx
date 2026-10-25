@@ -25,6 +25,14 @@ import type { AppColors } from '../theme/theme';
 import Text, { APP_FONT_FAMILY } from '../components/AppText';
 import { useLocalization } from '../context/LocalizationContext';
 
+function normalizeArabicText(text: string): string {
+  return text
+    .replace(/[\u064B-\u0652\u0670\u0640]/g, '')
+    .replace(/[أإآء]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه');
+}
+
 export default function SurahsScreen() {
   const [search, setSearch] = useState('');
   const { t, language } = useLocalization();
@@ -37,19 +45,25 @@ export default function SurahsScreen() {
   const styles = createStyles(colors);
 
   const filteredSurahs = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    const rawQuery = search.trim();
+    const query = rawQuery.toLowerCase();
 
     if (!query) {
       return surahs;
     }
 
-    return surahs.filter(
-      (surah) =>
+    const normalizedQuery = normalizeArabicText(query);
+
+    return surahs.filter((surah) => {
+      const normalizedArabic = normalizeArabicText(surah.arabic);
+      return (
         surah.name.toLowerCase().includes(query) ||
         t(surah.translation).toLowerCase().includes(query) ||
-        surah.arabic.includes(search.trim()) ||
-        String(surah.number) === query,
-    );
+        surah.arabic.includes(rawQuery) ||
+        normalizedArabic.includes(normalizedQuery) ||
+        String(surah.number) === query
+      );
+    });
   }, [search, language, t]);
 
   function handlePlay(number: number) {
@@ -304,6 +318,7 @@ function createStyles(colors: AppColors) {
   },
   surahInfo: {
     flex: 1,
+    minWidth: 0,
     justifyContent: 'center',
   },
   surahName: {
@@ -318,8 +333,11 @@ function createStyles(colors: AppColors) {
   },
   arabicName: {
     color: colors.text,
-    fontSize: 19,
-    marginLeft: 2,
+    width: 76,
+    flexShrink: 0,
+    textAlign: 'right',
+    fontSize: 15,
+    marginLeft: 0,
   },
   actionButton: {
     width: 32,

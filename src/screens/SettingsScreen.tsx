@@ -169,7 +169,7 @@ export default function SettingsScreen() {
           <Text style={styles.sectionTitle}>{t('LANGUAGE')}</Text>
         </View>
         <View style={styles.optionsCard}>
-          {(['tr', 'en'] as const).map((option, index) => (
+          {(['ar', 'en', 'fr', 'tr'] as const).map((option, index) => (
             <React.Fragment key={option}>
               {index > 0 && <View style={styles.separator} />}
               <Pressable
@@ -182,7 +182,7 @@ export default function SettingsScreen() {
                   <BookOpen size={20} color={language === option ? colors.emerald : colors.secondaryText} />
                 </View>
                 <View style={styles.optionText}>
-                  <Text style={styles.optionTitle}>{t(option === 'tr' ? 'Turkish' : 'English')}</Text>
+                  <Text style={styles.optionTitle}>{t(option === 'ar' ? 'Arabic' : option === 'fr' ? 'French' : option === 'tr' ? 'Turkish' : 'English')}</Text>
                 </View>
                 {language === option && <View style={styles.checkCircle}><Check size={16} color={colors.white} strokeWidth={2.5} /></View>}
               </Pressable>

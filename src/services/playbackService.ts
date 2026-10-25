@@ -5,6 +5,8 @@ import TrackPlayer, {
 
 import {
   logPlaybackServiceError,
+  queueFollowingSurah,
+  recordAutomaticSurahChange,
   playFollowingSurah,
   skipToNextSurah,
   skipToPreviousSurah,
@@ -58,6 +60,14 @@ export async function playbackService() {
         () => TrackPlayer.seekTo(event.position),
       ),
   );
+
+  TrackPlayer.addEventListener(Event.PlaybackActiveTrackChanged, (event) => {
+    recordAutomaticSurahChange(event.lastTrack);
+    return runServiceAction(
+      'prepare the next surah',
+      () => queueFollowingSurah(event.track),
+    );
+  });
 
   TrackPlayer.addEventListener(Event.PlaybackQueueEnded, (event) => {
     return runServiceAction(

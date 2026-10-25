@@ -381,10 +381,17 @@ index 842d16e..3efd078 100644
 diff --git a/node_modules/react-native-track-player/src/trackPlayer.ts b/node_modules/react-native-track-player/src/trackPlayer.ts
 --- a/node_modules/react-native-track-player/src/trackPlayer.ts
 +++ b/node_modules/react-native-track-player/src/trackPlayer.ts
-@@ -26,5 +26,5 @@
+@@ -26,4 +26,4 @@
  const emitter =
    Platform.OS !== 'android'
      ? new NativeEventEmitter(TrackPlayer)
 -    : DeviceEventEmitter;
 +    : (DeviceEventEmitter as unknown as NativeEventEmitter);
- 
+@@ -79,6 +79,6 @@ export function addEventListener<T extends Event>(
+   listener: EventPayloadByEvent[T] extends never
+     ? () => void
+     : (event: EventPayloadByEvent[T]) => void
+ ) {
+-  return emitter.addListener(event, listener);
++  return emitter.addListener(event, listener as never);
+ }

@@ -50,10 +50,10 @@ parts with different jobs:
 Playback flow, in plain language:
 1. A screen asks AudioPlayerContext to play a selected surah.
 2. The context updates the player-facing state and calls the audio service.
-3. The audio service asks the Kotlin bridge for that surah's local audio file.
-4. The bridge copies the audio from the installed Android asset pack into the
-   app cache and returns a file path.
-5. TrackPlayer plays that file and reports progress/state events.
+3. The audio service asks the Kotlin bridge for that surah's packaged asset URI.
+4. TrackPlayer reads the MP3 directly from Android's installed asset pack;
+   the app does not copy the full recording into its cache first.
+5. TrackPlayer plays the asset and reports progress/state events.
 6. The context turns those events into state shown by the mini-player and full
    player. A separate playback service handles events when the UI is not open.
 
@@ -154,8 +154,8 @@ Audio delivery prototype and full collection:
 - Compared source audio with compressed mono encodings.
 - Converted the full set to the user-selected 24 kbps mono target.
 - Added all 114 files to the quran_audio install-time pack.
-- Added a Kotlin module that reads a selected pack asset into app cache for
-  TrackPlayer.
+- Added a Kotlin module that resolves a selected install-time asset for
+  TrackPlayer without a per-play cache copy.
 - Removed the temporary audio test control after the real player flow existed.
 
 Player and app UX:

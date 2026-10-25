@@ -2,7 +2,7 @@ jest.mock('react-native', () => {
   return {
     NativeModules: {
       QuranAudioAssets: {
-        copySurahToCache: jest.fn(),
+        getSurahAssetUri: jest.fn(),
       },
     },
   };
@@ -12,6 +12,10 @@ jest.mock('react-native-track-player', () => ({
   __esModule: true,
   default: {
     add: jest.fn(),
+    load: jest.fn(),
+    removeUpcomingTracks: jest.fn(),
+    getQueue: jest.fn(),
+    skipToNext: jest.fn(),
     getActiveTrack: jest.fn(),
     getPlaybackState: jest.fn(),
     getProgress: jest.fn(),
@@ -58,6 +62,10 @@ import {
 const trackPlayerMock = jest.requireMock('react-native-track-player')
   .default as {
     add: jest.Mock;
+    load: jest.Mock;
+    removeUpcomingTracks: jest.Mock;
+    getQueue: jest.Mock;
+    skipToNext: jest.Mock;
     getActiveTrack: jest.Mock;
     getPlaybackState: jest.Mock;
     getProgress: jest.Mock;
@@ -69,8 +77,8 @@ const trackPlayerMock = jest.requireMock('react-native-track-player')
     setupPlayer: jest.Mock;
     updateOptions: jest.Mock;
   };
-const mockCopySurahToCache = jest.requireMock('react-native')
-  .NativeModules.QuranAudioAssets.copySurahToCache as jest.Mock;
+const mockGetSurahAssetUri = jest.requireMock('react-native')
+  .NativeModules.QuranAudioAssets.getSurahAssetUri as jest.Mock;
 
 type MockTrack = Track & { id: string };
 
@@ -80,7 +88,7 @@ let playbackState: string;
 function trackFor(surahNumber: number): MockTrack {
   return {
     id: `alafasy-surah-${String(surahNumber).padStart(3, '0')}`,
-    url: `file:///surah-${surahNumber}.mp3`,
+    url: `asset:///audio/${surahNumber}.mp3`,
   };
 }
 
@@ -89,11 +97,13 @@ beforeEach(() => {
   activeTrack = undefined;
   playbackState = 'playing';
 
-  mockCopySurahToCache.mockImplementation(async (surahNumber: number) =>
-    `file:///surah-${surahNumber}.mp3`,
+  mockGetSurahAssetUri.mockImplementation(async (surahNumber: number) =>
+    `asset:///audio/${surahNumber}.mp3`,
   );
   trackPlayerMock.setupPlayer.mockResolvedValue(undefined);
   trackPlayerMock.updateOptions.mockResolvedValue(undefined);
+  trackPlayerMock.removeUpcomingTracks.mockResolvedValue(undefined);
+  trackPlayerMock.getQueue.mockResolvedValue([]);
   trackPlayerMock.setRepeatMode.mockResolvedValue(0);
   trackPlayerMock.getActiveTrack.mockImplementation(async () => activeTrack);
   trackPlayerMock.getPlaybackState.mockImplementation(async () => ({
@@ -107,12 +117,17 @@ beforeEach(() => {
     activeTrack = undefined;
     playbackState = 'stopped';
   });
+  trackPlayerMock.load.mockImplementation(async (track) => {
+    if (!track || typeof track.id !== 'string') {
+      throw new Error('Expected a surah track to be loaded.');
+    }
+    activeTrack = { ...track, id: track.id };
+  });
   trackPlayerMock.add.mockImplementation(async (tracks) => {
     const track = Array.isArray(tracks) ? tracks[0] : tracks;
     if (!track || typeof track.id !== 'string') {
       throw new Error('Expected a surah track to be added.');
     }
-    activeTrack = { ...track, id: track.id };
   });
   trackPlayerMock.play.mockImplementation(async () => {
     playbackState = 'playing';
@@ -128,7 +143,7 @@ test('Previous immediately selects the preceding surah regardless of playback po
   await skipToPreviousSurah();
 
   expect(trackPlayerMock.seekTo).not.toHaveBeenCalled();
-  expect(trackPlayerMock.add).toHaveBeenCalledWith(
+  expect(trackPlayerMock.load).toHaveBeenCalledWith(
     expect.objectContaining({ id: 'alafasy-surah-001' }),
   );
 });
@@ -153,7 +168,7 @@ test('shuffle automatically advances to a different surah on completion', async 
 
   await playFollowingSurah();
 
-  const nextTrack = trackPlayerMock.add.mock.calls.at(-1)?.[0] as
+  const nextTrack = trackPlayerMock.load.mock.calls.at(-1)?.[0] as
     | { id: string }
     | undefined;
   expect(nextTrack?.id).not.toBe('alafasy-surah-001');
@@ -168,7 +183,7 @@ test('Previous follows shuffle history after a shuffled surah starts', async () 
   await playFollowingSurah();
   await skipToPreviousSurah();
 
-  expect(trackPlayerMock.add).toHaveBeenLastCalledWith(
+  expect(trackPlayerMock.load).toHaveBeenLastCalledWith(
     expect.objectContaining({ id: 'alafasy-surah-001' }),
   );
 });
@@ -182,7 +197,7 @@ test('Repeat Off keeps the ended surah selected and paused at the beginning', as
 
   expect(trackPlayerMock.seekTo).toHaveBeenCalledWith(0);
   expect(trackPlayerMock.pause).toHaveBeenCalled();
-  expect(trackPlayerMock.add).not.toHaveBeenCalled();
+  expect(trackPlayerMock.load).not.toHaveBeenCalled();
 });
 
 test('Repeat One replays the same surah on completion', async () => {
@@ -192,7 +207,7 @@ test('Repeat One replays the same surah on completion', async () => {
 
   await playFollowingSurah();
 
-  expect(trackPlayerMock.add).toHaveBeenCalledWith(
+  expect(trackPlayerMock.load).toHaveBeenCalledWith(
     expect.objectContaining({ id: 'alafasy-surah-007' }),
   );
   expect(trackPlayerMock.play).toHaveBeenCalled();
@@ -204,7 +219,7 @@ test('Repeat All advances to the next surah and wraps after Surah 114', async ()
   playbackState = 'ended';
 
   await playFollowingSurah();
-  expect(trackPlayerMock.add).toHaveBeenLastCalledWith(
+  expect(trackPlayerMock.load).toHaveBeenLastCalledWith(
     expect.objectContaining({ id: 'alafasy-surah-114' }),
   );
 
@@ -212,7 +227,7 @@ test('Repeat All advances to the next surah and wraps after Surah 114', async ()
   playbackState = 'ended';
   await playFollowingSurah();
 
-  expect(trackPlayerMock.add).toHaveBeenLastCalledWith(
+  expect(trackPlayerMock.load).toHaveBeenLastCalledWith(
     expect.objectContaining({ id: 'alafasy-surah-001' }),
   );
 });
@@ -223,14 +238,14 @@ test('Repeat Off does not advance past Surah 114 when Next is pressed', async ()
 
   await skipToNextSurah();
 
-  expect(trackPlayerMock.add).not.toHaveBeenCalled();
+  expect(trackPlayerMock.load).not.toHaveBeenCalled();
 });
 
 test('selecting a surah loads it into the player', async () => {
   await playSurah(36);
 
-  expect(mockCopySurahToCache).toHaveBeenCalledWith(36);
-  expect(trackPlayerMock.add).toHaveBeenCalledWith(
+  expect(mockGetSurahAssetUri).toHaveBeenCalledWith(36);
+  expect(trackPlayerMock.load).toHaveBeenCalledWith(
     expect.objectContaining({ id: 'alafasy-surah-036' }),
   );
   expect(trackPlayerMock.play).toHaveBeenCalled();
@@ -246,7 +261,7 @@ test('restores a saved surah and position without starting playback', async () =
 
   const restored = await restorePlaybackSession(session);
 
-  expect(trackPlayerMock.add).toHaveBeenCalledWith(
+  expect(trackPlayerMock.load).toHaveBeenCalledWith(
     expect.objectContaining({ id: 'alafasy-surah-042' }),
   );
   expect(trackPlayerMock.seekTo).toHaveBeenCalledWith(50);
